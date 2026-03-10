@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: realwinner
+
+management:
+  server:
+    port: 8080
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: always
