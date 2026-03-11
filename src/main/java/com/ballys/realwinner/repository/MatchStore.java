@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 
 @Repository
 public class MatchStore {
@@ -14,7 +15,11 @@ public class MatchStore {
     private final AtomicLong sequenceCounter = new AtomicLong(0);
 
     public long getNextSequence() { return sequenceCounter.incrementAndGet(); }
-    public void save(Match match) { matches.put(match.eventId(), match); }
     public Match findById(String eventId) { return matches.get(eventId); }
     public Collection<Match> findAll() { return matches.values(); }
+
+    // NEW: Expose atomic compute capability
+    public Match compute(String eventId, BiFunction<String, Match, Match> remappingFunction) {
+        return matches.compute(eventId, remappingFunction);
+    }
 }
