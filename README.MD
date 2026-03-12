@@ -9,7 +9,7 @@ Because this application is required to run without an external database, it use
 * **Java 21**
 * **Spring Boot 3.3.x**
 * **In-Memory Storage:** `ConcurrentHashMap` (No external database)
-* **Testing:** JUnit 5, Mockito, Multithreaded Concurrency Testing
+* **Testing:** JUnit 5, Mockito
 * **Documentation:** Springdoc OpenAPI (Swagger)
 
 ---
@@ -32,67 +32,55 @@ What happens if a user places a bet at the *exact same millisecond* a match fini
 
 ---
 
+### 🔄 Application Event Flow
+```mermaid
 sequenceDiagram
   autonumber
   actor Client
-
-    box REST API
     participant MatchController
     participant BettingController
-    end
-
-    box Core Services (Domain)
     participant MatchService
-    participant BettingService
-    end
-
-    box In-Memory Storage & Locks
     participant MatchStore
-    participant EventLockManager
+    participant LockManager
     participant BetStore
-    end
-
-    box Spring Context
     participant EventPublisher
-    end
+    participant BettingService
 
-    %% --- MATCH UPDATE FLOW ---
-    Note over Client, MatchStore: Scenario 1: Match & Score Updates
-    Client->>MatchController: PUT /matches/upsert (or PATCH /scores)
-    MatchController->>MatchService: Process update request
-    MatchService->>MatchStore: ConcurrentHashMap.compute() (Data-level lock)
-    MatchStore-->>MatchService: Return updated Match entity
+    Note over Client, MatchStore: 1. Match Creation & Live Score Updates
+    Client->>MatchController: PUT /matches/upsert (or PATCH for scores)
+    MatchController->>MatchService: Process request
+    MatchService->>MatchStore: ConcurrentHashMap.compute()
+    MatchStore-->>MatchService: Match updated
+    MatchService-->>MatchController: MatchUpdateResponse mapped
+    MatchController-->>Client: 200 OK { message, sequence }
     
-    opt If Match status changes to FINISHED
-        MatchService->>EventPublisher: publishEvent(MatchFinishedEvent)
-        Note right of EventPublisher: Async or Sync Listener triggers
-        EventPublisher->>BettingService: @EventListener handleMatchFinished()
-        
-        %% Settlement Flow
-        BettingService->>EventLockManager: Acquire WRITE Lock (Blocks new bets)
-        BettingService->>BetStore: findByEventId() (O(1) lookup)
-        Note over BettingService, BetStore: Calculate winners & update bet statuses
-        BettingService->>BetStore: save() all updated bets
-        EventLockManager-->>BettingService: Release WRITE Lock
-    end
-
-    MatchService-->>MatchController: MatchUpdateResponse DTO
-    MatchController-->>Client: 200 OK {"message": "...", "sequence": X}
-
-    %% --- BET PLACEMENT FLOW ---
-    Note over Client, BetStore: Scenario 2: Placing a Bet
+    Note over Client, BetStore: 2. Betting Flow
     Client->>BettingController: POST /bets/create
     BettingController->>BettingService: placeBet()
-    BettingService->>MatchStore: Validate Match is SCHEDULED or LIVE
+    BettingService->>MatchStore: Validate Match is LIVE/SCHEDULED
+    MatchStore-->>BettingService: Validation passed
+    BettingService->>LockManager: acquireReadLock() [Allows concurrent bets]
+    BettingService->>BetStore: save()
+    BetStore-->>BettingService: Bet saved
+    BettingService->>LockManager: releaseReadLock()
+    BettingService-->>BettingController: BetPlacementResponse mapped
+    BettingController-->>Client: 200 OK { message, betId, status }
     
-    BettingService->>EventLockManager: Acquire READ Lock (Allows concurrent bets)
-    Note over BettingService, BetStore: Validates user hasn't bet on this match yet
-    BettingService->>BetStore: save() (Nested Map O(1) insert)
-    EventLockManager-->>BettingService: Release READ Lock
+    Note over Client, BetStore: 3. Match Settlement Flow (Event-Driven)
+    Client->>MatchController: PUT /matches/upsert (status: FINISHED)
+    MatchController->>MatchService: updateMatchStatus()
+    MatchService->>MatchStore: Mark Match as FINISHED
+    MatchService->>EventPublisher: publishEvent(MatchFinishedEvent)
+    MatchService-->>MatchController: MatchUpdateResponse mapped
+    MatchController-->>Client: 200 OK
     
-    BettingService-->>BettingController: BetPlacementResponse DTO
-    BettingController-->>Client: 200 OK {"message": "Bet placed", ...}
-
+    EventPublisher->>BettingService: @EventListener triggers
+    BettingService->>LockManager: acquireWriteLock() [Blocks late ghost bets]
+    BettingService->>BetStore: get bets by eventId
+    Note right of BettingService: Calculate outcomes (WON/LOST)
+    BettingService->>BetStore: Update all bet statuses
+    BettingService->>LockManager: releaseWriteLock()
+```
 ---
 ## 📌 Business Rules & Assumptions
 
