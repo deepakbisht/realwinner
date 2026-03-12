@@ -2,11 +2,15 @@ package com.ballys.realwinner.controller;
 
 import com.ballys.realwinner.dto.request.BetRequest;
 import com.ballys.realwinner.dto.request.BetStatusRequest;
+import com.ballys.realwinner.dto.response.BetCreateResponse;
+import com.ballys.realwinner.dto.response.UserBetResponse;
 import com.ballys.realwinner.model.Bet;
+import com.ballys.realwinner.model.BetStatus;
 import com.ballys.realwinner.service.BettingService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,30 +32,59 @@ public class BettingController {
     }
 
     /**
-     * Places a new bet for a user on a specific match.
-     * Validates the incoming JSON payload before passing it to the service layer.
+     * Places a new bet on a specific match for a user.
+     * <p>
+     * Validates that the match exists, is open for betting, and that the user
+     * has not already placed a bet on this event.
      *
-     * @param req The validated payload containing the event ID, user ID, bet type, and chosen participant.
-     * @return A map containing a success message, the generated bet ID, and the initial 'pending' status.
+     * @param request The payload containing the event, user, and bet details.
+     * @return A {@link ResponseEntity} containing the {@link BetCreateResponse} with HTTP 200 OK.
      */
     @PostMapping("/create")
-    public Map<String, Object> placeBet(@Valid @RequestBody BetRequest req) {
-        log.info("REST request to place {} bet for user {} on match {}", req.betType(), req.userId(), req.eventId());
-        Bet b = bettingService.placeBet(req);
-        log.debug("Bet {} created successfully with status pending", b.betId());
-        return Map.of("message", "Bet placed", "betId", b.betId(), "status", "pending");
+    public ResponseEntity<BetCreateResponse> placeBet(@RequestBody BetRequest request) {
+        Bet savedBet = bettingService.placeBet(request);
+
+        BetCreateResponse response = new BetCreateResponse(
+                "Bet placed",
+                savedBet.betId(),
+                savedBet.status().name().toLowerCase()
+        );
+        return ResponseEntity.ok(response);
     }
 
     /**
-     * Retrieves a user's betting history, filtered by the bet's current status.
+     * Retrieves all bets placed by a specific user, optionally filtered by their status.
+     * <p>
+     * Dynamically maps internal bet entities to API-compliant DTOs, ensuring that
+     * pending bets expose a "status" field, while settled bets expose a "result" field.
      *
      * @param userId The unique identifier of the user.
-     * @param status The required status to filter by (e.g., PENDING or SETTLED).
-     * @return A list of bets matching the user and status criteria.
+     * @param status The status to filter by (e.g., "pending", "settled", or "all"). Defaults to "all".
+     * @return A {@link ResponseEntity} containing a list of {@link UserBetResponse} with HTTP 200 OK.
      */
     @GetMapping("/{userId}")
-    public List<Bet> getUserBets(@PathVariable String userId, @RequestParam BetStatusRequest status) {
-        log.debug("REST request to fetch bets for user {} with status {}", userId, status);
-        return bettingService.getUserBets(userId, status);
+    public ResponseEntity<List<UserBetResponse>> getUserBets(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "all") String status) {
+        BetStatusRequest betStatusRequest = BetStatusRequest.fromValue(status);
+        List<Bet> bets = bettingService.getUserBets(userId, betStatusRequest);
+
+        List<UserBetResponse> responseList = bets.stream()
+                .map(bet -> {
+                    // Check if the internal bet status indicates it has been settled
+                    boolean isSettled = BetStatus.WON.equals(bet.status()) || BetStatus.LOST.equals(bet.status());
+
+                    return new UserBetResponse(
+                            bet.betId(),
+                            bet.eventId(),
+                            bet.betType().name().toLowerCase(),
+                            bet.participantId(),
+                            isSettled ? null : "pending",                  // Show 'status' only if pending
+                            isSettled ? bet.status().name().toLowerCase() : null  // Show 'result' only if settled
+                    );
+                })
+                .toList();
+
+        return ResponseEntity.ok(responseList);
     }
 }

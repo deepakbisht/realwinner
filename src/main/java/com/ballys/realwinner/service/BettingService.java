@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -40,7 +41,7 @@ public class BettingService {
      *
      * @param req The details of the bet being placed (user, match, type, team).
      * @return The newly created Bet object with a PENDING status.
-     * @throws IllegalStateException If the match is already finished or doesn't exist.
+     * @throws IllegalStateException    If the match is already finished or doesn't exist.
      * @throws IllegalArgumentException If the bet details (like the team chosen) are invalid.
      */
     public Bet placeBet(BetRequest req) {
@@ -66,15 +67,23 @@ public class BettingService {
                 throw new IllegalArgumentException("Draw bets must have a null participant ID");
             }
 
+            // Prevent a user from placing multiple bets on the same match
+            boolean userAlreadyBetOnMatch = betStore.findByUserId(req.userId()).stream()
+                    .anyMatch(b -> b.eventId().equals(req.eventId()));
+
+            if (userAlreadyBetOnMatch) {
+                throw new IllegalArgumentException("User " + req.userId() + " has already placed a bet on match " + req.eventId());
+            }
+
             String betId = "B" + UUID.randomUUID().toString().substring(0, 8);
-            Bet bet = new Bet(betId, req.eventId(), req.userId(), req.betType(), req.participantId(), BetStatus.PENDING, null);
+            Bet bet = new Bet(betId, req.eventId(), req.userId(), req.betType(), req.participantId(), BetStatus.PENDING);
 
             betStore.save(bet);
 
             log.info("Bet {} successfully placed by user {} for match {}", betId, req.userId(), req.eventId());
             return bet;
         } finally {
-            lock.unlock(); 
+            lock.unlock();
         }
     }
 
@@ -93,17 +102,22 @@ public class BettingService {
         int settledCount = 0;
 
         for (Bet bet : betStore.findByEventId(eventId)) {
+            BetStatus finalStatus;
             if (bet.status() == BetStatus.PENDING) {
-                BetStatus result = BetStatus.LOSS;
-
-                if (bet.betType() == BetType.WIN && bet.participantId().equals(winnerId)) {
-                    result = BetStatus.WIN;
-                } else if (bet.betType() == BetType.DRAW && winnerId == null) {
-                    result = BetStatus.WIN;
+                if (winnerId == null) {
+                    // It's a draw
+                    finalStatus = (bet.betType() == BetType.DRAW) ? BetStatus.WON : BetStatus.LOST;
+                } else {
+                    // Someone won
+                    if (bet.betType() == BetType.WIN && winnerId.equals(bet.participantId())) {
+                        finalStatus = BetStatus.WON;
+                    } else {
+                        finalStatus = BetStatus.LOST;
+                    }
                 }
 
                 betStore.save(new Bet(
-                        bet.betId(), bet.eventId(), bet.userId(), bet.betType(), bet.participantId(), null, result
+                        bet.betId(), bet.eventId(), bet.userId(), bet.betType(), bet.participantId(), finalStatus
                 ));
                 settledCount++;
             }
@@ -114,13 +128,18 @@ public class BettingService {
     /**
      * Retrieves all bets placed by a specific user, filtered by their current status.
      *
-     * @param userId The ID of the user requesting their bets.
-     * @param status The status to filter by (e.g., PENDING or SETTLED).
+     * @param userId    The ID of the user requesting their bets.
+     * @param statusReq The status to filter by (e.g., PENDING or SETTLED).
      * @return A list of the user's bets matching the requested status.
      */
-    public List<Bet> getUserBets(String userId, BetStatusRequest status) {
-        return betStore.findByUserId(userId).stream()
-                .filter(b -> status == BetStatusRequest.PENDING ? b.status() == BetStatus.PENDING : b.result() != null)
-                .toList();
+    public List<Bet> getUserBets(String userId, BetStatusRequest statusReq) {
+        Collection<Bet> betsByUserId = betStore.findByUserId(userId);
+        if (statusReq.equals(BetStatusRequest.ALL)) {
+            return betsByUserId.stream().toList();
+        } else {
+            return betStore.findByUserId(userId).stream()
+                    .filter(b -> (statusReq == BetStatusRequest.LIVE) == (b.status() == BetStatus.PENDING))
+                    .toList();
+        }
     }
 }

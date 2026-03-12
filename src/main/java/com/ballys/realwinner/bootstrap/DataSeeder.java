@@ -1,11 +1,20 @@
 package com.ballys.realwinner.bootstrap;
 
+import com.ballys.realwinner.dto.request.BetRequest;
+import com.ballys.realwinner.dto.request.MatchRequest;
+import com.ballys.realwinner.dto.request.ScoreRequest;
+import com.ballys.realwinner.model.BetType;
+import com.ballys.realwinner.model.MatchStatus;
+import com.ballys.realwinner.model.Participant;
 import com.ballys.realwinner.service.BettingService;
 import com.ballys.realwinner.service.MatchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+
+import java.util.Map;
+import java.util.Set;
 
 @Component
 public class DataSeeder implements CommandLineRunner {
@@ -22,7 +31,7 @@ public class DataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-/*        log.info("======================================================");
+        log.info("======================================================");
         log.info("🚀 Starting Data Population & Scenario Simulation...");
         log.info("======================================================");
 
@@ -99,5 +108,5 @@ public class DataSeeder implements CommandLineRunner {
         log.info("   Try: GET /matches/query");
         log.info("   Try: GET /bets/U001?status=SETTLED");
         log.info("======================================================");
-   */ }
+    }
 }

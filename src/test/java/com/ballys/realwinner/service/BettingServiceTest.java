@@ -20,9 +20,6 @@ import static org.mockito.Mockito.mock;
 
 class BettingServiceTest {
 
-    private BetStore betStore;
-    private MatchStore matchStore;
-    private EventLockManager lockManager;
     private MatchService matchService;
     private BettingService bettingService;
 
@@ -30,15 +27,14 @@ class BettingServiceTest {
 
     @BeforeEach
     void setUp() {
-        betStore = new BetStore();
-        matchStore = new MatchStore();
-        lockManager = new EventLockManager();
+        BetStore betStore = new BetStore();
+        MatchStore matchStore = new MatchStore();
+        EventLockManager lockManager = new EventLockManager();
         ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
 
         matchService = new MatchService(matchStore, eventPublisher, lockManager);
         bettingService = new BettingService(betStore, matchService, lockManager);
 
-        // Corrected to Set.of()
         participants = Set.of(
                 new Participant("P1", "Team A"),
                 new Participant("P2", "Team B")
@@ -92,7 +88,7 @@ class BettingServiceTest {
         assertNotNull(bet.betId());
         assertEquals(BetStatus.PENDING, bet.status());
 
-        assertEquals(1, bettingService.getUserBets("U1", BetStatusRequest.PENDING).size());
+        assertEquals(1, bettingService.getUserBets("U1", BetStatusRequest.LIVE).size());
     }
 
     // --- SETTLEMENT VALIDATIONS ---
@@ -112,9 +108,9 @@ class BettingServiceTest {
         List<Bet> u2Bets = bettingService.getUserBets("U2", BetStatusRequest.SETTLED);
         List<Bet> u3Bets = bettingService.getUserBets("U3", BetStatusRequest.SETTLED);
 
-        assertEquals(BetStatus.WIN, u1Bets.get(0).result());
-        assertEquals(BetStatus.LOSS, u2Bets.get(0).result());
-        assertEquals(BetStatus.LOSS, u3Bets.get(0).result());
+        assertEquals(BetStatus.WON, u1Bets.getFirst().status());
+        assertEquals(BetStatus.LOST, u2Bets.getFirst().status());
+        assertEquals(BetStatus.LOST, u3Bets.getFirst().status());
     }
 
     @Test
@@ -127,7 +123,22 @@ class BettingServiceTest {
         MatchFinishedEvent event = new MatchFinishedEvent("E1", null);
         bettingService.onMatchFinished(event);
 
-        assertEquals(BetStatus.WIN, bettingService.getUserBets("U1", BetStatusRequest.SETTLED).get(0).result());
-        assertEquals(BetStatus.LOSS, bettingService.getUserBets("U2", BetStatusRequest.SETTLED).get(0).result());
+        assertEquals(BetStatus.WON, bettingService.getUserBets("U1", BetStatusRequest.SETTLED).getFirst().status());
+        assertEquals(BetStatus.LOST, bettingService.getUserBets("U2", BetStatusRequest.SETTLED).getFirst().status());
+    }
+
+    @Test
+    void placeBet_UserAlreadyBetOnMatch_ThrowsException() {
+        // 1. Setup a valid scheduled match
+        matchService.addOrUpdateMatch(new MatchRequest("E1", "Match", participants, MatchStatus.SCHEDULED));
+
+        // 2. User U1 places their first bet successfully
+        bettingService.placeBet(new BetRequest("E1", "U1", BetType.WIN, "P1"));
+
+        // 3. User U1 attempts to place a second bet (e.g., hedging with a DRAW) on the same match
+        BetRequest secondBetRequest = new BetRequest("E1", "U1", BetType.DRAW, null);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> bettingService.placeBet(secondBetRequest));
+        assertTrue(ex.getMessage().contains("has already placed a bet on match E1"));
     }
 }

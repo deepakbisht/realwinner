@@ -1,14 +1,32 @@
 package com.ballys.realwinner.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonValue;
 
 import java.util.Arrays;
 
 
 public enum BetStatusRequest {
-    @JsonProperty("pending") PENDING,
-    @JsonProperty("settled") SETTLED;
+    LIVE("live"),
+    SETTLED("settled"),
+    ALL("all");
+
+    private final String value;
+
+    BetStatusRequest(String value) {
+        this.value = value;
+    }
+
+    @JsonValue
+    public String getValue() {
+        return value;
+    }
+
+
+    @Override
+    public String toString() {
+        return value;
+    }
 
     @JsonCreator
     public static BetStatusRequest fromValue(String value) {
@@ -16,8 +34,9 @@ public enum BetStatusRequest {
             return null;
         }
         return switch (value.toLowerCase()) {
-            case "pending" -> PENDING;
+            case "live" -> LIVE;
             case "settled" -> SETTLED;
+            case "all" -> ALL;
             default -> throw new IllegalArgumentException("Invalid BetStatusRequest: " + value + " should be one of:"
                     + Arrays.toString(BetStatusRequest.values()));
         };

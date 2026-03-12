@@ -18,7 +18,6 @@ public class MatchStore {
     public Match findById(String eventId) { return matches.get(eventId); }
     public Collection<Match> findAll() { return matches.values(); }
 
-    // NEW: Expose atomic compute capability
     public Match compute(String eventId, BiFunction<String, Match, Match> remappingFunction) {
         return matches.compute(eventId, remappingFunction);
     }
