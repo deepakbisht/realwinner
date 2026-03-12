@@ -137,7 +137,7 @@ public class BettingService {
         if (statusReq.equals(BetStatusRequest.ALL)) {
             return betsByUserId.stream().toList();
         } else {
-            return betStore.findByUserId(userId).stream()
+            return betsByUserId.stream()
                     .filter(b -> (statusReq == BetStatusRequest.LIVE) == (b.status() == BetStatus.PENDING))
                     .toList();
         }
