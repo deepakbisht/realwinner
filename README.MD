@@ -30,11 +30,70 @@ What happens if a user places a bet at the *exact same millisecond* a match fini
 * **Placing a Bet (Read Lock):** Thousands of users can place bets concurrently on a LIVE match without slowing each other down.
 * **Finishing a Match (Write Lock):** When a match finishes, the system claims a "Write Lock". This temporarily pauses new bets for *that specific match only*, settles all pending bets accurately, and then permanently locks the match.
 
-### 3. O(1) Fast Queries
-Instead of scanning every bet in the system to find a user's history, the `BetStore` uses dual partitioned indexes (`betsByUserId` and `betsByEventId`). This means finding a user's bets or settling a finished match takes O(1) time, providing massive performance improvements.
-
 ---
 
+sequenceDiagram
+  autonumber
+  actor Client
+
+    box REST API
+    participant MatchController
+    participant BettingController
+    end
+
+    box Core Services (Domain)
+    participant MatchService
+    participant BettingService
+    end
+
+    box In-Memory Storage & Locks
+    participant MatchStore
+    participant EventLockManager
+    participant BetStore
+    end
+
+    box Spring Context
+    participant EventPublisher
+    end
+
+    %% --- MATCH UPDATE FLOW ---
+    Note over Client, MatchStore: Scenario 1: Match & Score Updates
+    Client->>MatchController: PUT /matches/upsert (or PATCH /scores)
+    MatchController->>MatchService: Process update request
+    MatchService->>MatchStore: ConcurrentHashMap.compute() (Data-level lock)
+    MatchStore-->>MatchService: Return updated Match entity
+    
+    opt If Match status changes to FINISHED
+        MatchService->>EventPublisher: publishEvent(MatchFinishedEvent)
+        Note right of EventPublisher: Async or Sync Listener triggers
+        EventPublisher->>BettingService: @EventListener handleMatchFinished()
+        
+        %% Settlement Flow
+        BettingService->>EventLockManager: Acquire WRITE Lock (Blocks new bets)
+        BettingService->>BetStore: findByEventId() (O(1) lookup)
+        Note over BettingService, BetStore: Calculate winners & update bet statuses
+        BettingService->>BetStore: save() all updated bets
+        EventLockManager-->>BettingService: Release WRITE Lock
+    end
+
+    MatchService-->>MatchController: MatchUpdateResponse DTO
+    MatchController-->>Client: 200 OK {"message": "...", "sequence": X}
+
+    %% --- BET PLACEMENT FLOW ---
+    Note over Client, BetStore: Scenario 2: Placing a Bet
+    Client->>BettingController: POST /bets/create
+    BettingController->>BettingService: placeBet()
+    BettingService->>MatchStore: Validate Match is SCHEDULED or LIVE
+    
+    BettingService->>EventLockManager: Acquire READ Lock (Allows concurrent bets)
+    Note over BettingService, BetStore: Validates user hasn't bet on this match yet
+    BettingService->>BetStore: save() (Nested Map O(1) insert)
+    EventLockManager-->>BettingService: Release READ Lock
+    
+    BettingService-->>BettingController: BetPlacementResponse DTO
+    BettingController-->>Client: 200 OK {"message": "Bet placed", ...}
+
+---
 ## 📌 Business Rules & Assumptions
 
 ### Match Handling
