@@ -5,6 +5,48 @@ RealWinner is a lightweight service for managing football match events and user 
 
 Because this application is required to run without an external database, it uses advanced Java concurrency features to handle thousands of requests per second safely, ensuring no data is lost or corrupted when multiple updates happen at the exact same millisecond.
 
+---
+
+## 📖 Overview of Requirements
+
+This application is a single-instance service designed to manage football match data, live scores, and user betting. It operates entirely in memory without the use of an external database.
+
+**1. Match Management**
+* Maintain match details, including the participants and the current status ("scheduled", "live", or "finished").
+* Store and update scores for each participant ID.
+* Treat every match creation or score update as a timed, sequential event utilizing an internal sequence counter or timestamp.
+* Allow users to query match data, ensuring the results are always returned sorted by their arrival order (with the most recent arrivals appearing last).
+
+**2. Betting Rules & Settlement**
+* Allow users to place bets on a specific participant to win (`betType = "win"`) or for the match to end in a tie (`betType = "draw"`).
+* Ensure "win" bets specify a participant ID, while "draw" bets strictly require a null participant ID.
+* Restrict bet placements so they can only occur while a match is "scheduled" or "live".
+* Upon match completion, automatically compare scores to determine the outcome: the highest score yields a winner, while equal scores yield a "draw".
+* Successfully settle "win" bets if the chosen participant matches the winner, and "draw" bets if the match outcome is a draw; all other bets must be marked as a loss.
+
+**3. User Bet Tracking**
+* Tie every bet placed in the system to a specific user ID.
+* Provide a query for "Live Bets" to show users their pending wagers for matches that have not yet finished.
+* Provide a query for "Settled Bets" to show users their completed wagers, displaying the final result as a "win" or "loss".
+
+---
+
+## 💻 Tech Stack & System Requirements
+
+**Tech Stack**
+* **Java 21**
+* **Spring Boot 4.0.x**
+* **In-Memory Storage:** `ConcurrentHashMap` & standard `HashMap` (No external database)
+* **Testing:** JUnit, Mockito
+* **Documentation:** Springdoc OpenAPI (Swagger)
+
+**System Requirements**
+* **General:** Any standard local development machine is more than capable of running this service.
+* **Memory (RAM):** Because this application utilizes an entirely in-memory datastore, the total volume of matches and bets it can process is directly bound by the available JVM heap space. For the scope of this assignment, default JVM memory allocations are perfectly sufficient.
+* **Storage:** < 50 MB for the compiled `.jar` file. No persistent disk I/O is required at runtime.
+* **Network:** Port `8080` must be available locally to start the embedded Tomcat server.
+
+---
 ## 🚀 Tech Stack
 * **Java 21**
 * **Spring Boot 3.3.x**
@@ -127,26 +169,21 @@ Because this application relies entirely on an in-memory data store (`Concurrent
 * **Single Bet Limitation:** Asserts that if a user attempts to place a second bet on the same match (e.g., hedging), the request is rejected.
 * **Event-Driven Settlement:** Asserts that when a `MatchFinishedEvent` is published, all `PENDING` bets for that match are correctly mapped to `WON` or `LOST` based on the final score.
 
-### 3. Concurrency & Race Conditions (Multi-threaded Tests)
-
-* **The "Starting Gun" Score Test:** 100 threads attempt to update the score of a single LIVE match at the exact same millisecond. Validates that `ConcurrentHashMap.compute()` safely processes all updates without dropping a score or allowing an older score to overwrite the highest value.
-* **The "Ghost Bet" Prevention Test:** 100 threads attempt to place a bet while 1 thread simultaneously attempts to transition the match to `FINISHED`. Validates that the `ReentrantReadWriteLock` correctly rejects bets that arrive after the write-lock is claimed, ensuring 0 pending bets remain on a completed match.
-
 ## 🛠️ How to Run
 
 ### Prerequisites
 * Java 21 installed on your machine.
-* Maven (Optional, as the project includes the Maven Wrapper).
+* Maven 
 
 ### Running Locally
 Open your terminal in the project folder and run:
 
 ```bash
 # 1. Clean and build the project
-./mvnw clean install
+  mvn clean install
 
 # 2. Start the application
-./mvnw spring-boot:run
+  mvn spring-boot:run
 Once running, you can view the fully documented Swagger UI at:
 
 👉 http://localhost:8080/swagger-ui.html
@@ -342,4 +379,4 @@ This project includes a comprehensive JUnit 5 test suite.
 To run the tests:
 
 Bash
-./mvnw test
+mvn clean test

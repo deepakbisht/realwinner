@@ -91,8 +91,7 @@ class BettingServiceTest {
         assertEquals(1, bettingService.getUserBets("U1", BetStatusRequest.LIVE).size());
     }
 
-    // --- SETTLEMENT VALIDATIONS ---
-
+    // --- SETTLEMENT VALIDATION
     @Test
     void onMatchFinished_SettlesBetsCorrectly() {
         matchService.addOrUpdateMatch(new MatchRequest("E1", "Match", participants, MatchStatus.SCHEDULED));
@@ -140,5 +139,16 @@ class BettingServiceTest {
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> bettingService.placeBet(secondBetRequest));
         assertTrue(ex.getMessage().contains("has already placed a bet on match E1"));
+    }
+
+    @Test
+    void placeBet_WinBetWithNullParticipant_ThrowsException() {
+        matchService.addOrUpdateMatch(new MatchRequest("E1", "Match", participants, MatchStatus.SCHEDULED));
+
+        // Attempting to place a WIN bet without specifying who will win
+        BetRequest req = new BetRequest("E1", "U1", BetType.WIN, null);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> bettingService.placeBet(req));
+        assertTrue(ex.getMessage().contains("Invalid participant for WIN bet")); // Adjust string to match your actual exception message
     }
 }
